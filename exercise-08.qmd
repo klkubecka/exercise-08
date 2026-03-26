@@ -1,0 +1,221 @@
+---
+title: "exercise-08"
+format: html
+---
+
+```{r}
+# Loading in a variety of packages to do the assignment. 
+library(lmodel2)
+library(broom)
+library(manipulate)
+library(patchwork)
+library(infer)
+library(tidyverse)
+library(mosaic)
+library(radiant)
+library(moments)
+library(skimr)
+```
+
+```{r}
+# Step 1
+
+# Loading in the data set to be used and reading it as a csv.
+f <- "https://raw.githubusercontent.com/difiore/ada-datasets/main/Street_et_al_2017.csv"
+d <- read_csv(f, col_names = TRUE)
+
+# Short exploratory analysis step
+(skim(d))
+```
+
+```{r}
+# Step 2
+
+# Plot of ECV as a function of Group Size.
+(plot1 <- ggplot(
+  data = d,
+  aes(
+  x = Group_size,
+  y = ECV
+)) + 
+  geom_point() +
+  geom_smooth(method = "lm"))
+
+# Plot of ECV as a function of Longevity.
+(plot2 <- ggplot(
+  data = d,
+  aes(
+  x = Longevity,
+  y = ECV
+)) + 
+  geom_point() +
+  geom_smooth(method = "lm"))
+
+# Plot of ECV as a function of Weaning.
+(plot3 <- ggplot(
+  data = d,
+  aes(
+  x = Weaning,
+  y = ECV
+)) + 
+  geom_point() +
+  geom_smooth(method = "lm"))
+
+# Plot of ECV as a function of Reproductive lifespan.
+(plot4 <- ggplot(
+  data = d,
+  aes(
+  x = Repro_lifespan,
+  y = ECV
+)) + 
+  geom_point() +
+  geom_smooth(method = "lm"))
+```
+  
+  
+```{r} 
+# Step 3
+
+# In this first step I am removing any rows from the data set that have an NA value in either variable of ECV and Group size. I am then using this "clean" data set to find the covariance. This value is then used to determine beta1 which is then used to determine beta0.
+d <- d |> drop_na(ECV, Group_size)
+(cov <- sum((d$Group_size - mean(d$Group_size)) * (d$ECV - mean(d$ECV))/(nrow(d)-1)))
+
+(beta1 <- cov/var(d$Group_size))
+(beta0 <- (mean(d$ECV)) - (beta1*mean(d$Group_size)))
+```
+  
+```{r}
+# Step 4
+
+# Using the built in linear model test to check my previous work. Based on the numbers given from the previous step and this step the numbers match.
+m <- lm( ECV ~ Group_size, data = d)
+summary(m)
+
+```
+  
+```{r}
+# Step 5
+
+#This first step I am filtering the data set (by sub-setting) based on the listed taxonomic groups to carry out linear model tests on individual taxonomic groups.
+cata <- d |> filter(Taxonomic_group == "Catarrhini")
+plat <- d |> filter(Taxonomic_group == "Platyrrhini")
+strep <- d |> filter(Taxonomic_group == "Strepsirhini")
+
+# These lines of code are used to carry out a linear model test on individual taxonomic groups. Still looking at ECV as a function of group size. 
+catam <- lm(ECV ~ Group_size, data = cata)
+summary(catam)
+
+platm <- lm(ECV ~ Group_size, data = plat)
+summary(platm)
+
+strepm <- lm(ECV ~ Group_size, data = strep)
+summary(strepm)
+
+```
+# The regression coefficients do differ slightly upon a visual glance. To determine their differences I would look at the p-values. For Platyrrhines and Stresiirhines both are well below 0.05 meaning that for both taxonomic groups the group size does play a role in ECV value. For Catarrhines it is 0.0518 which is slightly above 0.05 but it can still be determined that for this taxonomic group group size does play a role in ECV value.
+
+
+
+```{r}
+# Step 6
+
+# Here I am defining what n is to be the amount of samples collected for Group size. 
+n <- length(d$Group_size)
+
+# Defining the standard error using the appropriate equation.
+se <- sd(d$Group_size)/sqrt(n)
+
+# Defining the sample mean (me) and population mean (popme). Population mean has the value 301 which is the amount of sample collected before cleaning the data. 
+me <- mean(d$Group_size)
+popme <- sum(d$Group_size, data = d)/301
+
+# Determining the t-stat manually to be used in determining the upper and lower limits of the confidence interval.
+t_stat_manual <- (me - popme) / se
+
+# Determining a 95% confidence interval manually.
+(ci_upper <- me + (t_stat_manual * (se)))
+(ci_lower <- me - (t_stat_manual *(se)))
+
+cat("Manual 95% CI:", ci_lower, "to", ci_upper, "\n")
+
+# Another method in determining the t_stat.
+t_stat <- tidy(m) |>
+  pull(statistic)
+
+# Defining the df as the residuals of my previous linear model.
+df <- df.residual(m)
+
+# Calculating the 95% confidence interval manually.
+p_val_manual <- 2 * pt(-abs(t_stat), df = df)
+
+# Writing out the confidence interval.
+cat("Manual p-value:", p_val_manual, "\n")
+
+# Checking my manual p-values to one done by an built in linear model function. the p-values do match.
+m2 <- lm(ECV ~ Group_size, data = d)
+summary(m2)
+```
+
+```{r}
+# Step 7 
+
+# Defning the amount of permutations I will be doing and giving them an empty vector to go into. 
+nperm = 1000
+perm_coefs <- vector(length = nperm)
+
+# Loop for permutations. Breaking up the association between group size and ECV by using sample function. Then doing a linear model test for each permutation and defining those results at perm_coefs. These coefficients are then piped into tidy function with is then piped to filter to look at only the slops for Group size and pulling out those slope estimates. Note there is no replacement of values in this loop.
+for (i in 1:nperm){
+  d_perm <- d
+  d_perm$Group_size <- sample(d$Group_size)
+  
+  perm_coefs[[i]] <- lm( ECV ~ Group_size, data = d_perm) |>
+    tidy() |>
+    filter(term == "Group_size") |>
+    pull(estimate)
+}
+
+# Looking and visualizing the permutation coefficients which are centered around 0 and are normally distributed. 
+perm_coefs
+(hist(perm_coefs))
+
+```
+
+# For this step I needed to permeate the linear model test of ECV as a function of Group size. The permeation repeats 1000 times and randomizes the order of group size values to achieve this. The p value associated with my original slope coefficient is: 7.26e-11 which indicates that Group size does have an effect on ECV.
+
+```{r}
+# Step 8
+
+# Defining about many bootstraps I am doing and setting up an empty vector for the values to go in. 
+nboot <- 1000
+boot_coefs <- vector(length = nboot)
+
+# Bootstrapping loop with replacement. I randomize the group size values using sample and doing a linear model test for each bootstrap. Then piping all those values into the tidy function and piping them into filter to only look at the group size coefficients. The loop then pulls the estimates for each coefficient.
+for (i in 1:nboot) {
+  d_boot <- d[sample(nrow(d), replace = TRUE), ]
+  boot_coefs[[i]] <- lm(ECV ~ Group_size, data = d_boot) |>
+    tidy() |>
+    filter(term == "Group_size") |>
+    pull(estimate)
+}
+
+# Visualizing the coefficients which appear to be normal.
+hist(boot_coefs)
+
+# Quantile method for determining the the 95% confidence interval and writing out what that interval is. 
+ci <- quantile(boot_coefs, c (0.025, 0.975))
+cat("Bootstrap 95% CI:", ci[[1]], "to", ci[[2]], "\n")
+
+# Defining the beat1, the standard error of my bootstrapping and determining the t-crit value for my bootstrapping to determine the 95% confidence interval manually.
+beta_1 = mean(boot_coefs)
+boot_se <- sd(boot_coefs)
+boot_t_crit <- qt(0.975, df = nrow(d)-2)
+
+# Using theory-based method of determining the 95% confidence itnerval. 
+boot_ci_lower <- beta_1 - boot_t_crit*boot_se
+boot_ci_upper <- beta_1 + boot_t_crit*boot_se
+
+# Writing out the values of the theory-based 95% confidence interval.
+cat("Manual Bootstrap 95% CI:", boot_ci_lower, "to", boot_ci_upper, "\n")
+```
+
+# The CI's based on the quantile and theory-based bootstrapping methods indicate that the slope coefficeint is different from zero since the CI's don't contain the value of zero.
